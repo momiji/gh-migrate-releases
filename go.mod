@@ -1,8 +1,6 @@
 module github.com/mona-actions/gh-migrate-releases
 
-go 1.21
-
-toolchain go1.21.6
+go 1.23.0
 
 require (
 	github.com/gofri/go-github-ratelimit v1.1.0
@@ -10,7 +8,7 @@ require (
 	github.com/pterm/pterm v0.12.79
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.2
-	golang.org/x/oauth2 v0.20.0
+	golang.org/x/oauth2 v0.27.0
 )
 
 require (
