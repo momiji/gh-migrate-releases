@@ -76,6 +76,23 @@ func GetSourceRepositoryReleases(owner string, repository string) ([]*github.Rep
 
 }
 
+func GetSourceRepositoryLatestRelease(owner string, repository string) (*github.RepositoryRelease, error) {
+	client := newGHRestClient(viper.GetString("source_token"), viper.GetString("source_hostname"))
+
+	ctx := context.WithValue(context.Background(), github.SleepUntilPrimaryRateLimitResetWhenRateLimited, true)
+
+	release, resp, err := client.Repositories.GetLatestRelease(ctx, owner, repository)
+
+	if err != nil {
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("no releases found for repository %s/%s", owner, repository)
+		}
+		return nil, fmt.Errorf("unable to get latest release: %v", err)
+	}
+
+	return release, nil
+}
+
 func DownloadReleaseAssets(asset *github.ReleaseAsset) error {
 
 	token := viper.Get("SOURCE_TOKEN").(string)
