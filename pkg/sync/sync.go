@@ -113,6 +113,18 @@ func migrateRepositoryReleases(repository string) (int, int, error) {
 		pterm.Fatal.Printf("Error: %v", err)
 		fetchReleasesSpinner.Fail()
 	}
+
+	// Get the latest release ID for comparison
+	var latestID int64
+	var hasLatestRelease bool
+	latestRelease, err := api.GetSourceRepositoryLatestRelease(owner, repository)
+	if err != nil {
+		pterm.Warning.Printf("Could not fetch latest release: %v", err)
+	} else {
+		latestID = latestRelease.GetID()
+		hasLatestRelease = true
+	}
+
 	fetchReleasesSpinner.UpdateText(fmt.Sprintf(" %d Releases fetched successfully!", len(releases)))
 	fetchReleasesSpinner.Success()
 
@@ -120,8 +132,16 @@ func migrateRepositoryReleases(repository string) (int, int, error) {
 	createReleasesSpinner, _ := pterm.DefaultSpinner.Start("Creating releases in target repository...", repository)
 	var failed int
 	releasesCount := len(releases)
+	var foundLatest bool
 	//loop through each release and create it in the target repository
 	for _, release := range releases {
+		// Mark as latest if this is the latest release and we haven't found it yet
+		if !foundLatest && hasLatestRelease && release.GetID() == latestID {
+			makeLatest := "true"
+			release.MakeLatest = &makeLatest
+			foundLatest = true
+		}
+
 		createReleasesSpinner.UpdateText("Creating release: " + release.GetName())
 
 		// Modify release body to map new handles and map old urls to new urls
