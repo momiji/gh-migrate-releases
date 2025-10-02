@@ -100,7 +100,7 @@ func AssetExists(release *github.RepositoryRelease, assetName string, assetSize 
 	}
 
 	for _, existingAsset := range release.Assets {
-		if existingAsset.GetName() == assetName && existingAsset.GetSize() == int(assetSize) {
+		if existingAsset.GetName() == assetName && int64(existingAsset.GetSize()) == assetSize {
 			return true
 		}
 	}
