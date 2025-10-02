@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/go-github/v62/github"
 	"github.com/mona-actions/gh-migrate-releases/internal/api"
 	"github.com/mona-actions/gh-migrate-releases/internal/files"
 	"github.com/mona-actions/gh-migrate-releases/internal/mapping"
@@ -116,13 +117,11 @@ func migrateRepositoryReleases(repository string) (int, int, error) {
 
 	// Get the latest release ID for comparison
 	var latestID int64
-	var hasLatestRelease bool
 	latestRelease, err := api.GetSourceRepositoryLatestRelease(owner, repository)
 	if err != nil {
 		pterm.Warning.Printf("Could not fetch latest release: %v", err)
 	} else {
 		latestID = latestRelease.GetID()
-		hasLatestRelease = true
 	}
 
 	fetchReleasesSpinner.UpdateText(fmt.Sprintf(" %d Releases fetched successfully!", len(releases)))
@@ -132,15 +131,10 @@ func migrateRepositoryReleases(repository string) (int, int, error) {
 	createReleasesSpinner, _ := pterm.DefaultSpinner.Start("Creating releases in target repository...", repository)
 	var failed int
 	releasesCount := len(releases)
-	var foundLatest bool
+	var newLatestReleaseID int64
+
 	//loop through each release and create it in the target repository
 	for _, release := range releases {
-		// Mark as latest if this is the latest release and we haven't found it yet
-		if !foundLatest && hasLatestRelease && release.GetID() == latestID {
-			makeLatest := "true"
-			release.MakeLatest = &makeLatest
-			foundLatest = true
-		}
 
 		createReleasesSpinner.UpdateText("Creating release: " + release.GetName())
 
@@ -153,26 +147,58 @@ func migrateRepositoryReleases(repository string) (int, int, error) {
 		if err != nil {
 			pterm.Warning.Printf("Error modifying release body: %v", err)
 		}
-		// Create release api call
-		newRepository := repository
-		newRelease, err := api.CreateRelease(newRepository, release)
-		if err != nil {
-			if strings.Contains(err.Error(), "already exists") {
-				pterm.Info.Printf("Release already exists: %v... skipping", release.GetName())
-				continue
-			} else {
-				failed++
-				createReleasesSpinner.Fail()
-				pterm.Warning.Printf("Error creating release: %v", err)
+
+		// Check if release already exists before creating
+		targetOrg := viper.GetString("TARGET_ORGANIZATION")
+		existingRelease, releaseExists := api.ReleaseExists(targetOrg, repository, release)
+
+		var newRelease *github.RepositoryRelease
+
+		if releaseExists {
+			pterm.Info.Printf("Release already exists with matching tag_name, name, and target_commitish: %v... skipping creation", release.GetName())
+			newRelease = existingRelease
+		} else {
+			// Create release api call
+			newRelease, err = api.CreateRelease(repository, release)
+			if err != nil {
+				if strings.Contains(err.Error(), "already exists") {
+					pterm.Info.Printf("Release already exists: %v... fetching existing release", release.GetName())
+					// Get the existing release to check for assets
+					existingRelease, err := api.GetReleaseByTag(targetOrg, repository, release.GetTagName())
+					if err != nil {
+						pterm.Warning.Printf("Could not retrieve existing release: %v", err)
+						continue
+					}
+					newRelease = existingRelease
+				} else {
+					failed++
+					createReleasesSpinner.Fail()
+					pterm.Warning.Printf("Error creating release: %v", err)
+					continue
+				}
 			}
 		}
+
+		// Check if this release was the latest in the source repository
+		if latestID != 0 && release.GetID() == latestID {
+			newLatestReleaseID = newRelease.GetID()
+		}
+
 		// Download assets from source repository and upload to target repository
 		for _, asset := range release.Assets {
+
+			// Check if the asset already exists in the target release
+			if api.AssetExists(newRelease, asset.GetName(), int64(asset.GetSize())) {
+				createReleasesSpinner.UpdateText(fmt.Sprintf("Asset %s already exists, skipping...", asset.GetName()))
+				pterm.Info.Printf("Asset %s already exists in release %s, skipping", asset.GetName(), release.GetName())
+				continue
+			}
 
 			err := api.DownloadReleaseAssets(asset)
 			createReleasesSpinner.UpdateText("Downloading asset..." + asset.GetName())
 			if err != nil {
 				pterm.Error.Printf("Error downloading assets: %v", err)
+				continue
 			}
 			createReleasesSpinner.UpdateText("Uploading assets..." + asset.GetName())
 
@@ -180,8 +206,21 @@ func migrateRepositoryReleases(repository string) (int, int, error) {
 			if err != nil {
 				pterm.Error.Printf("Error uploading assets: %v", err)
 				createReleasesSpinner.Fail()
+				continue
 			}
 		}
+	}
+
+	// Set the latest release in the target repository
+	if newLatestReleaseID != 0 {
+		targetOrg := viper.GetString("TARGET_ORGANIZATION")
+		err := api.SetLatestRelease(targetOrg, repository, newLatestReleaseID)
+		pterm.Info.Printf("Marking release %s as latest", latestRelease.GetName())
+		if err != nil {
+			pterm.Warning.Printf("Error marking latest release: %v", err)
+		}
+	} else {
+		pterm.Warning.Printf("Could not mark latest release: no releases found or failed to create")
 	}
 
 	if failed > 0 {

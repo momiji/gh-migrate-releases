@@ -93,6 +93,60 @@ func GetSourceRepositoryLatestRelease(owner string, repository string) (*github.
 	return release, nil
 }
 
+// AssetExists checks if an asset with the same name and size already exists in a release
+func AssetExists(release *github.RepositoryRelease, assetName string, assetSize int64) bool {
+	if release == nil || release.Assets == nil {
+		return false
+	}
+
+	for _, existingAsset := range release.Assets {
+		if existingAsset.GetName() == assetName && existingAsset.GetSize() == int(assetSize) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// GetReleaseByTag retrieves a release from the target repository by its tag name
+func GetReleaseByTag(owner string, repository string, tagName string) (*github.RepositoryRelease, error) {
+	client := newGHRestClient(viper.GetString("TARGET_TOKEN"), "")
+
+	ctx := context.WithValue(context.Background(), github.SleepUntilPrimaryRateLimitResetWhenRateLimited, true)
+
+	release, resp, err := client.Repositories.GetReleaseByTag(ctx, owner, repository, tagName)
+	if err != nil {
+		if resp != nil && resp.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("release not found for tag %s", tagName)
+		}
+		return nil, fmt.Errorf("unable to get release by tag: %v", err)
+	}
+
+	return release, nil
+}
+
+// ReleaseExists checks if a release with matching tag_name, name, and target_commitish already exists
+func ReleaseExists(owner string, repository string, release *github.RepositoryRelease) (*github.RepositoryRelease, bool) {
+	if release == nil || release.TagName == nil {
+		return nil, false
+	}
+
+	existingRelease, err := GetReleaseByTag(owner, repository, release.GetTagName())
+	if err != nil {
+		return nil, false
+	}
+
+	// Check if name and target_commitish match
+	nameMatches := existingRelease.GetName() == release.GetName()
+	commitMatches := existingRelease.GetTargetCommitish() == release.GetTargetCommitish()
+
+	if nameMatches && commitMatches {
+		return existingRelease, true
+	}
+
+	return existingRelease, false
+}
+
 func DownloadReleaseAssets(asset *github.ReleaseAsset) error {
 
 	token := viper.Get("SOURCE_TOKEN").(string)
@@ -310,4 +364,18 @@ func GetDatafromGitHubContext() (string, string, int, error) {
 	issueNumber := *issueEvent.Issue.Number
 
 	return organization, repository, issueNumber, nil
+}
+
+func SetLatestRelease(owner string, repository string, releaseID int64) error {
+	client := newGHRestClient(viper.GetString("TARGET_TOKEN"), "")
+
+	ctx := context.WithValue(context.Background(), github.SleepUntilPrimaryRateLimitResetWhenRateLimited, true)
+	_, _, err := client.Repositories.EditRelease(ctx, owner, repository, releaseID, &github.RepositoryRelease{
+		MakeLatest: github.String("true"),
+	})
+	if err != nil {
+		return fmt.Errorf("error making release latest: %v", err)
+	}
+
+	return nil
 }
