@@ -215,7 +215,11 @@ func migrateRepositoryReleases(repository string) (int, int, error) {
 	// Set the latest release in the target repository
 	if newLatestReleaseID != 0 {
 		err := api.SetLatestRelease(targetOrg, repository, newLatestReleaseID)
-		pterm.Info.Printf("Marking release %s as latest", latestRelease.GetName())
+		if latestRelease != nil {
+			pterm.Info.Printf("Marking release %s as latest", latestRelease.GetName())
+		} else {
+			pterm.Info.Printf("Marking release (unknown name) as latest")
+		}
 		if err != nil {
 			pterm.Warning.Printf("Error marking latest release: %v", err)
 		}
