@@ -108,6 +108,8 @@ func migrateRepositoryReleases(repository string) (int, int, error) {
 		owner = viper.GetString("SOURCE_ORGANIZATION")
 	}
 
+	targetOrg := viper.GetString("TARGET_ORGANIZATION")
+
 	fetchReleasesSpinner, _ := pterm.DefaultSpinner.Start("Fetching releases from repository: ", repository)
 	releases, err := api.GetSourceRepositoryReleases(owner, repository)
 	if err != nil {
@@ -149,7 +151,6 @@ func migrateRepositoryReleases(repository string) (int, int, error) {
 		}
 
 		// Check if release already exists before creating
-		targetOrg := viper.GetString("TARGET_ORGANIZATION")
 		existingRelease, releaseExists := api.ReleaseExists(targetOrg, repository, release)
 
 		var newRelease *github.RepositoryRelease
@@ -213,7 +214,6 @@ func migrateRepositoryReleases(repository string) (int, int, error) {
 
 	// Set the latest release in the target repository
 	if newLatestReleaseID != 0 {
-		targetOrg := viper.GetString("TARGET_ORGANIZATION")
 		err := api.SetLatestRelease(targetOrg, repository, newLatestReleaseID)
 		pterm.Info.Printf("Marking release %s as latest", latestRelease.GetName())
 		if err != nil {
