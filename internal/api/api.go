@@ -151,9 +151,11 @@ func DownloadReleaseAssets(asset *github.ReleaseAsset) error {
 
 	token := viper.Get("SOURCE_TOKEN").(string)
 
-	// Download the asset
-
+	// Download the asset using URL if not nil, else DownloadURL
 	url := asset.GetBrowserDownloadURL()
+	if asset.URL != nil {
+		url = *asset.URL
+	}
 	dirName := tmpDir
 	fileName := dirName + "/" + asset.GetName()
 
@@ -237,6 +239,7 @@ func DownloadFileFromURL(url, fileName, token string) error {
 	}
 
 	req.Header.Add("Authorization", "Bearer "+token)
+	req.Header.Add("Accept", "application/octet-stream")
 
 	// Get the data
 	resp, err := http.DefaultClient.Do(req)
